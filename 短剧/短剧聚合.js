@@ -2,7 +2,7 @@
 // @author 
 // @description
 // @dependencies: axios, crypto-js
-// @version 1.0.1
+// @version 1.0.2
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/短剧/短剧聚合.js
 
 /**
@@ -114,17 +114,9 @@ const aggConfig = {
         }
     },
     platformList: [
-        { name: '甜圈短剧', id: '甜圈' },
-        //{ name: '百度短剧', id: '百度' },
         { name: '七猫短剧', id: '七猫' },
-        { name: '星芽短剧', id: '星芽' },
-        { name: '碎片剧场', id: '碎片' },
-        { name: '锦鲤短剧', id: '锦鲤' },
-        //{ name: '番茄短剧', id: '番茄' },
         { name: '软鸭短剧', id: '软鸭' },
-        { name: '围观短剧', id: '围观' },
-        //{ name: '西饭短剧', id: '西饭' },
-        { name: '牛牛短剧', id: '牛牛' }
+        { name: '甜圈短剧', id: '甜圈' }
     ],
     search: { limit: 30, timeout: 6000 }
 };
@@ -1708,7 +1700,7 @@ async function play(params) {
         return { urls: [], parse: 0 };
     }
     
-    logInfo("🎬 准备播放: " + flag);
+    logInfo("🎬 准备播放: " + flag + " | playId=" + playId);
     
     const cfg = aggConfig;
     
@@ -1741,17 +1733,41 @@ async function play(params) {
             };
         }
         else if (flag.indexOf('锦鲤短剧') !== -1) {
-            const html = await request(playId + '&auto=1', { headers: { referer: 'https://www.jinlidj.com/' } });
-            const match = html.match(/let data\s*=\s*({[^;]*});/);
-            const url = match ? JSON.parse(match[1]).url : '';
-            return { urls: [{ name: '播放', url: url }], parse: 0 };
+            const targetUrl = playId.indexOf('auto=1') !== -1 ? playId : playId + '&auto=1';
+            const html = await request(targetUrl, { headers: { referer: 'https://www.jinlidj.com/' } });
+            let url = '';
+            const trimmed = (html || '').trim();
+            if (trimmed && (trimmed[0] === '{' || trimmed[0] === '[')) {
+                try {
+                    const res = JSON.parse(trimmed);
+                    url = (res && (res.url || (res.data && res.data.url))) || '';
+                } catch (e) {
+                    url = '';
+                }
+            }
+            if (!url) {
+                const dataMatch = html.match(/(?:let|var|const)\s+data\s*=\s*({[\s\S]*?});/);
+                if (dataMatch) {
+                    const urlMatch = dataMatch[1].match(/url\s*:\s*['"]([^'"]+)['"]/);
+                    if (urlMatch) url = urlMatch[1];
+                }
+            }
+            if (!url) {
+                const urlMatch = html.match(/https?:\/\/[^'"\s]+\.(m3u8|mp4)(\?[^'"\s]*)?/i);
+                if (urlMatch) url = urlMatch[0];
+            }
+            return {
+                urls: url ? [{ name: '播放', url: url }] : [],
+                parse: 0,
+                header: { referer: 'https://www.jinlidj.com/' }
+            };
         }
         else if (flag.indexOf('番茄短剧') !== -1) {
             const fqHeaders = Object.assign({}, cfg.headers.default, {
                 'X-SS-REQ-TICKET': Date.now().toString()
             });
             
-            const apiUrl = 'http://fqgo.52dns.cc/video?item_ids=' + playId;
+            const apiUrl = 'https://fqgo.52dns.cc/video?item_ids=' + playId;
             const html = await request(apiUrl, { headers: fqHeaders, timeout: 10000 });
             const res = JSON.parse(html);
             
@@ -1763,7 +1779,7 @@ async function play(params) {
                 }
             }
             
-            return { urls: [{ name: '播放', url: url }], parse: 0 };
+            return { urls: url ? [{ name: '播放', url: url }] : [], parse: 0 };
         }
         else if (flag.indexOf('星芽短剧') !== -1) {
             return { urls: [{ name: '播放', url: playId }], parse: 0 };
@@ -1774,7 +1790,7 @@ async function play(params) {
         else if (flag.indexOf('软鸭短剧') !== -1) {
             const res = JSON.parse(await request(cfg.platform.软鸭.host + '/API/playlet/?video_id=' + playId + '&quality=1080p', { headers: cfg.headers.default }));
             const url = (res.data && res.data.video && res.data.video.url) || '';
-            return { urls: [{ name: '播放', url: url }], parse: 0 };
+            return { urls: url ? [{ name: '播放', url: url }] : [], parse: 0 };
         }
         else if (flag.indexOf('七猫短剧') !== -1) {
             return { urls: [{ name: '播放', url: playId }], parse: 0 };
@@ -1791,7 +1807,7 @@ async function play(params) {
             }));
             const url = (res.data && res.data.url) || '';
             return {
-                urls: [{ name: '播放', url: url }],
+                urls: url ? [{ name: '播放', url: url }] : [],
                 parse: 0,
                 header: { 'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.87 Safari/537.36' }
             };
@@ -1803,15 +1819,17 @@ async function play(params) {
             } catch (e) {
                 return { urls: [{ name: '播放', url: playId }], parse: 0 };
             }
-            let singleUrl = '';
+            let urls = [];
             if (playSetting.super) {
-                singleUrl = playSetting.super;
-            } else if (playSetting.high) {
-                singleUrl = playSetting.high;
-            } else if (playSetting.normal) {
-                singleUrl = playSetting.normal;
+                urls.push({ name: '超清', url: playSetting.super });
             }
-            return { urls: [{ name: '播放', url: singleUrl }], parse: 0 };
+            if (playSetting.high) {
+                urls.push({ name: '高清', url: playSetting.high });
+            }
+            if (playSetting.normal) {
+                urls.push({ name: '流畅', url: playSetting.normal });
+            }
+            return { urls: urls, parse: 0 };
         }
         else if (flag.indexOf('碎片剧场') !== -1) {
             return { urls: [{ name: '播放', url: playId }], parse: 0 };
