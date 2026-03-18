@@ -2,7 +2,7 @@
 // @author 
 // @description
 // @dependencies: axios, crypto-js
-// @version 1.0.3
+// @version 1.0.4
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/短剧/短剧聚合.js
 
 /**
@@ -114,9 +114,10 @@ const aggConfig = {
         }
     },
     platformList: [
-        { name: '七猫短剧', id: '七猫' },
-        { name: '软鸭短剧', id: '软鸭' },
-        { name: '甜圈短剧', id: '甜圈' }
+         { name: '七猫短剧', id: '七猫' },
+         { name: '软鸭短剧', id: '软鸭' },
+         { name: '西饭短剧', id: '西饭' },
+         { name: '甜圈短剧', id: '甜圈' }
     ],
     search: { limit: 30, timeout: 6000 }
 };
@@ -128,7 +129,7 @@ const filter_def = {
     锦鲤: { area: '' },
     番茄: { area: 'videoseries_hot' },
     星芽: { area: '1' },
-    西饭: { area: '10003@都市' },
+    西饭: { area: '68@都市' },
     软鸭: { area: '战神' },
     七猫: { area: '0' },
     牛牛: { area: '现言' },
@@ -255,18 +256,21 @@ const customFilters = {
     "西饭": [{
         key: "area",
         name: "分类",
-        init: "10003@都市",
+        init: "68@都市",
         value: [
-            { name: "都市", value: "10003@都市" },
-            { name: "古装", value: "10001@古装" },
-            { name: "现代", value: "10002@现代" },
-            { name: "玄幻", value: "10004@玄幻" },
-            { name: "穿越", value: "10005@穿越" },
-            { name: "重生", value: "10006@重生" },
-            { name: "逆袭", value: "10007@逆袭" },
-            { name: "霸总", value: "10008@霸总" },
-            { name: "战神", value: "10009@战神" },
-            { name: "赘婿", value: "10010@赘婿" }
+            { name: "都市", value: "68@都市" },
+            { name: "青春", value: "68@青春" },
+            { name: "现代言情", value: "81@现代言情" },
+            { name: "豪门", value: "81@豪门" },
+            { name: "大女主", value: "80@大女主" },
+            { name: "逆袭", value: "79@逆袭" },
+            { name: "打脸虐渣", value: "79@打脸虐渣" },
+            { name: "穿越", value: "81@穿越" },
+            { name: "推荐", value: "68@推荐" },
+            { name: "情节", value: "79@情节" },
+            { name: "角色", value: "80@角色" },
+            { name: "主题", value: "81@主题" },
+            { name: "集数", value: "82@集数" }
         ]
     }],
     "软鸭": [{
@@ -335,6 +339,7 @@ const customFilters = {
 // 全局变量
 let xingya_headers = {};
 let suipian_token = '';
+let xifan_category_map = null;
 
 /**
  * 创建 Axios 实例
@@ -534,6 +539,38 @@ const getSuipianToken = async function() {
         logError('碎片token获取失败', e);
         return '';
     }
+};
+
+/**
+ * 西饭分类映射获取（分类名 -> 分类ID）
+ */
+const getXifanCategoryMap = async function() {
+    if (xifan_category_map) return xifan_category_map;
+
+    xifan_category_map = {};
+    try {
+        const plat = aggConfig.platform['西饭'];
+        const xifanHeaders = { 'User-Agent': 'okhttp/3.12.11' };
+        const api = plat.host + '/xifan/drama/portalPage?reqType=duanjuCategory&version=2001001&androidVersionCode=28';
+        const html = await request(api, { headers: xifanHeaders, timeout: 8000 });
+        const res = JSON.parse(html);
+        const elements = ((res || {}).result || {}).elements || [];
+        const list = ((elements[0] || {}).contents) || [];
+
+        for (let i = 0; i < list.length; i++) {
+            const item = list[i] || {};
+            const vo = item.categoryItemVo || {};
+            const name = vo.oppoCategory || '';
+            const id = vo.categoryId;
+            if (name && id !== undefined && id !== null) {
+                xifan_category_map[name] = String(id);
+            }
+        }
+    } catch (e) {
+        logError('西饭分类映射获取失败', e);
+    }
+
+    return xifan_category_map;
 };
 
 // ========== 核心接口实现 ==========
@@ -812,14 +849,22 @@ async function category(params) {
             case '西饭': {
                 presumedPageSize = 30;
                 const parts = area.split('@');
-                const typeId = parts[0];
+                let typeId = parts[0];
                 const typeName = parts[1] || '';
                 const ts = Math.floor(Date.now() / 1000);
                 const offset = (MY_PAGE - 1) * presumedPageSize;
+                const xifanHeaders = { 'User-Agent': 'okhttp/3.12.11' };
+
+                if (!typeId || /^1\d{4,}$/.test(typeId)) {
+                    const xifanMap = await getXifanCategoryMap();
+                    if (xifanMap[typeName]) {
+                        typeId = xifanMap[typeName];
+                    }
+                }
                 
                 const url = plat.host + plat.url1 + '?reqType=aggregationPage&offset=' + offset + '&categoryId=' + typeId + '&quickEngineVersion=-1&scene=&categoryNames=' + encodeURIComponent(typeName) + '&categoryVersion=1&density=1.5&pageID=page_theater&version=2001001&androidVersionCode=28&requestId=' + ts + 'aa498144140ef297&appId=drama&teenMode=false&userBaseMode=false&session=eyJpbmZvIjp7InVpZCI6IiIsInJ0IjoiMTc0MDY1ODI5NCIsInVuIjoiT1BHXzFlZGQ5OTZhNjQ3ZTQ1MjU4Nzc1MTE2YzFkNzViN2QwIiwiZnQiOiIxNzQwNjU4Mjk0In19&feedssession=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1dHlwIjowLCJidWlkIjoxNjMzOTY4MTI2MTQ4NjQxNTM2LCJhdWQiOiJkcmFtYSIsInZlciI6MiwicmF0IjoxNzQwNjU4Mjk0LCJ1bm0iOiJPUEdfMWVkZDk5NmE2NDdlNDUyNTg3NzUxMTZjMWQ3NWI3ZDAiLCJpZCI6IjNiMzViZmYzYWE0OTgxNDQxNDBlZjI5N2JkMDY5NGNhIiwiZXhwIjoxNzQxMjYzMDk0LCJkYyI6Imd6cXkifQ.JS3QY6ER0P2cQSxAE_OGKSMIWNAMsYUZ3mJTnEpf-Rc';
                 
-                const html = await request(url, { headers: cfg.headers.default, timeout: 8000 });
+                const html = await request(url, { headers: xifanHeaders, timeout: 8000 });
                 
                 if (!html || html.indexOf('<html') !== -1) {
                     logError('西饭返回异常', new Error('Invalid response'));
@@ -1162,9 +1207,10 @@ async function search(params) {
                 }
                 case '西饭': {
                     const ts = Math.floor(Date.now() / 1000);
-                    const url = plat.host + plat.search + '?keyword=' + encodeURIComponent(keyword) + '&pageIndex=' + pg + '&version=2001001&androidVersionCode=28&requestId=' + ts + 'ea3a14bc0317d76f&appId=drama&teenMode=false&userBaseMode=false&session=eyJpbmZvIjp7InVpZCI6IiIsInJ0IjoiMTc0MDY2ODk4NiIsInVuIjoiT1BHX2U5ODQ4NTgzZmM4ZjQzZTJhZjc5ZTcxNjRmZTE5Y2JjIiwiZnQiOiIxNzQwNjY4OTg2In19&feedssession=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1dHlwIjowLCJidWlkIjoxNjM0MDU3ODE4OTgxNDk5OTA0LCJhdWQiOiJkcmFtYSIsInZlciI6MiwicmF0IjoxNzQwNjY4OTg2LCJ1bm0iOiJPUEdfZTk4NDg1ODNmYzhmNDNlMmFmNzllNzE2NGZlMTljYmMiLCJpZCI6ImVhZGE1NmEyZWEzYTE0YmMwMzE3ZDc2ZmVjODJjNzc3IiwiZXhwIjoxNzQxMjczNzg2LCJkYyI6ImJqaHQifQ.IwuI0gK077RF4G10JRxgxx4GCG502vR8Z0W9EV4kd-c';
+                    const xifanHeaders = { 'User-Agent': 'okhttp/3.12.11' };
+                    const url = plat.host + plat.search + '?keyword=' + encodeURIComponent(keyword + '84') + '&pageIndex=' + pg + '&version=2001001&androidVersionCode=28&requestId=' + ts + 'ea3a14bc0317d76f&appId=drama&teenMode=false&userBaseMode=false&session=eyJpbmZvIjp7InVpZCI6IiIsInJ0IjoiMTc0MDY2ODk4NiIsInVuIjoiT1BHX2U5ODQ4NTgzZmM4ZjQzZTJhZjc5ZTcxNjRmZTE5Y2JjIiwiZnQiOiIxNzQwNjY4OTg2In19&feedssession=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1dHlwIjowLCJidWlkIjoxNjM0MDU3ODE4OTgxNDk5OTA0LCJhdWQiOiJkcmFtYSIsInZlciI6MiwicmF0IjoxNzQwNjY4OTg2LCJ1bm0iOiJPUEdfZTk4NDg1ODNmYzhmNDNlMmFmNzllNzE2NGZlMTljYmMiLCJpZCI6ImVhZGE1NmEyZWEzYTE0YmMwMzE3ZDc2ZmVjODJjNzc3IiwiZXhwIjoxNzQxMjczNzg2LCJkYyI6ImJqaHQifQ.IwuI0gK077RF4G10JRxgxx4GCG502vR8Z0W9EV4kd-c';
                     
-                    const html = await request(url, { headers: cfg.headers.default, timeout: searchTimeout });
+                    const html = await request(url, { headers: xifanHeaders, timeout: searchTimeout });
                     
                     if (!html || html.indexOf('<html') !== -1) {
                         break;
@@ -1179,7 +1225,7 @@ async function search(params) {
                                     const vod = soup.contents[j];
                                     if (vod.duanjuVo) {
                                         const dj = vod.duanjuVo;
-                                        let name = dj.title.replace(/<\/?tag>/g, "");
+                                        let name = (dj.title || '').replace(/<\/?tag>/g, "");
                                         results.push({
                                             vod_id: '西饭@' + dj.duanjuId + '#' + dj.source,
                                             vod_name: name || '未知短剧',
@@ -1489,9 +1535,10 @@ async function detail(params) {
                 const parts2 = detailId.split('#');
                 const duanjuId = parts2[0];
                 const source = parts2[1];
-                const ts = Math.floor(Date.now() / 1000);
+                const ts = Date.now();
+                const xifanHeaders = { 'User-Agent': 'okhttp/3.12.11' };
                 const url = plat.host + plat.url2 + '?duanjuId=' + duanjuId + '&source=' + source + '&openFrom=homescreen&type=&pageID=page_inner_flow&density=1.5&version=2001001&androidVersionCode=28&requestId=' + ts + 'aa498144140ef297&appId=drama&teenMode=false&userBaseMode=false&session=eyJpbmZvIjp7InVpZCI6IiIsInJ0IjoiMTc0MDY1ODI5NCIsInVuIjoiT1BHXzFlZGQ5OTZhNjQ3ZTQ1MjU4Nzc1MTE2YzFkNzViN2QwIiwiZnQiOiIxNzQwNjU4Mjk0In19&feedssession=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1dHlwIjowLCJidWlkIjoxNjMzOTY4MTI2MTQ4NjQxNTM2LCJhdWQiOiJkcmFtYSIsInZlciI6MiwicmF0IjoxNzQwNjU4Mjk0LCJ1bm0iOiJPUEdfMWVkZDk5NmE2NDdlNDUyNTg3NzUxMTZjMWQ3NWI3ZDAiLCJpZCI6IjNiMzViZmYzYWE0OTgxNDQxNDBlZjI5N2JkMDY5NGNhIiwiZXhwIjoxNzQxMjYzMDk0LCJkYyI6Imd6cXkifQ.JS3QY6ER0P2cQSxAE_OGKSMIWNAMsYUZ3mJTnEpf-Rc';
-                const res = JSON.parse(await request(url, { headers: aggConfig.headers.default }));
+                const res = JSON.parse(await request(url, { headers: xifanHeaders }));
                 const data = res.result;
                 const episodes = [];
                 for (let i = 0; i < data.episodeList.length; i++) {
